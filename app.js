@@ -2,10 +2,29 @@
     app = express(), //cant create express.createServer...the app variable bundles everything needed
     server = require('http').createServer(app), //need an http server object so we manually create it
     io = require('socket.io').listen(server), //create socket functionality and liste to an http server
+    mongoose = require('mongoose'),
     nickNames = [],
     users = {};
 
 server.listen(3000); // tell the server what port to listen on
+
+// MONGO FUNCTIONALITY
+mongoose.connect('mongodb://localhost/chat', function (err) {
+    if (err) {
+        console.log(err);
+    } else {
+        console.log("connected to mongo!");
+    };
+});
+
+var chatSchema = mongoose.Schema({
+    nick: String,
+    msg: String,
+    created: {type: Date, default: Date.now}
+});
+
+// 1st param is the collection name or table name, 2nd is schema
+var chatModel = mongoose.model('Message', chatSchema);
 
 app.get('/', function(req, res){
     res.sendFile(__dirname + '/index.html');
@@ -14,6 +33,12 @@ app.get('/', function(req, res){
 
 // SOCKET FUNCTIONALITY
 io.sockets.on('connection', function (socket) { // what happens when user connects
+    var query = chatModel.find({});
+    query.sort('-created').limit(3).exec(function (err, docs) {
+        if (err) throw err;
+        console.log("sending old messages...");
+        socket.emit('load old msgs', docs);
+    });
 
     socket.on('send-message', function (data, callback) { // map to function you defined in client
         var msg = data.trim();
@@ -38,7 +63,12 @@ io.sockets.on('connection', function (socket) { // what happens when user connec
             };
             
         } else {
-            io.sockets.emit('new message', { msg: data, nick: socket.nickname }); // broadcast to all clients/users including yourself
+            var newMsg = new chatModel({ msg: msg, nick: socket.nickname }); // save to mongodb
+            newMsg.save(function (err) {
+                if (err) throw err;
+                io.sockets.emit('new message', { msg: data, nick: socket.nickname }); // broadcast to all clients/users including yourself
+            });
+            
         };
 
         
